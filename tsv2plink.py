@@ -55,6 +55,7 @@ def convert_to_plink(samples_dir, anno):
     with open(anno, "r") as f:
         annotation = list(map(lambda x: x.strip().split("\t"), f.readlines()))
     annotation.sort(key=lambda x: (x[1], x[2]))  # sort by chromosome followed by position
+    fam_id = os.path.basename(samples_dir)
     open(fam_id + ".ped", "w").close()
     for sample_file in samples:
         ped_line = [fam_id, os.path.split(sample_file)[1][:-4], "0", "0", "0", "0"]
@@ -157,12 +158,12 @@ def get_chrom_list(mapfile):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Converts sample and annotation files from tsv to "
-                    "plink compatible file formats (ped and map files), "
+        description="Converts sample and annotation files from TSV to "
+                    "plink compatible file formats (PED and MAP files), "
                     "with the option to liftOver from hg18 to hg19"
     )
-    parser.add_argument("dir", help="Directory containing sample tsv files", type=str)
-    parser.add_argument("anno", help="Tsv annotation file", type=str)
+    parser.add_argument("dir", help="Directory containing sample TSV files", type=str)
+    parser.add_argument("anno", help="TSV annotation file", type=str)
     parser.add_argument(
         "--to-hg19",
         help="Convert chromosome and position from hg18 to hg19",
