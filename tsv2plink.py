@@ -6,6 +6,8 @@ files and an TSV annotation file and builds a PED and a MAP file for plink.
 import argparse
 import glob
 import os
+from pathlib import Path
+import subprocess
 import sys
 
 
@@ -28,7 +30,7 @@ def update_genotype(ped_line, call_code, annotation):
         ped_line.append(f"{allele_cols[call_code[0]]} {allele_cols[call_code[1]]}")
 
 
-def convert_to_plink(samples_dir, anno):
+def convert_to_plink(samples_dir, anno, outdir):
     """
     Converts input tsv files into PED and MAP files for plink pipeline.
     These files will be named as <samples directory name>.ped/.map
@@ -46,6 +48,7 @@ def convert_to_plink(samples_dir, anno):
 
     :param samples_dir: Directory of sample TSV files
     :param anno: file name of the annotation TSV file
+    :param outdir: Name of directory to write output files in
     """
     if not (os.path.exists(samples_dir) and os.path.exists(anno)):
         raise Exception("Directory or Annotation files does not exist\n")
@@ -56,7 +59,7 @@ def convert_to_plink(samples_dir, anno):
         annotation = list(map(lambda x: x.strip().split("\t"), f.readlines()))
     annotation.sort(key=lambda x: (x[1], x[2]))  # sort by chromosome followed by position
     fam_id = os.path.basename(samples_dir)
-    open(fam_id + ".ped", "w").close()
+    open(outdir + fam_id + ".ped", "w").close()
     for sample_file in samples:
         ped_line = [fam_id, os.path.split(sample_file)[1][:-4], "0", "0", "0", "0"]
 
@@ -84,7 +87,7 @@ def convert_to_plink(samples_dir, anno):
             else:
                 sample_pos += 1
 
-        with open(fam_id + ".ped", "a") as f:
+        with open(outdir + fam_id + ".ped", "a") as f:
             for i in range(len(ped_line)-1):
                 f.write(ped_line[i] + "\t")
             f.write(ped_line[-1] + "\n")
@@ -92,7 +95,7 @@ def convert_to_plink(samples_dir, anno):
     for line in annotation:
         map_content.append("\t".join([line[1], line[0], "0", line[2]]) + "\n")
 
-    with open(fam_id + ".map", "w") as f:
+    with open(outdir + fam_id + ".map", "w") as f:
         f.writelines(map_content)
 
 
@@ -149,11 +152,11 @@ def remove_unused_markers(mapfile):
     fo.close()
 
 
-def get_chrom_list(mapfile):
-    with open(mapfile, "r") as f:
-        lines = list(set(map(lambda x: x.split("\t")[0] + "\n", f.readlines())))
-    with open(mapfile[:-4]+"_chromosomes.txt", "w") as f:
-        f.writelines(lines)
+# def get_chrom_list(mapfile):
+#     with open(mapfile, "r") as f:
+#         lines = list(set(map(lambda x: x.split("\t")[0] + "\n", f.readlines())))
+#     with open(mapfile[:-4]+"_chromosomes.txt", "w") as f:
+#         f.writelines(lines)
 
 
 def parse_args():
@@ -173,23 +176,33 @@ def parse_args():
     if args.dir.endswith("\\") or args.dir.endswith("/"):
         args.dir = args.dir[:-1]
     fam_id = os.path.basename(args.dir)
+    outdir = fam_id + "plink/"
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
     print("Creating PLINK files...")
-    convert_to_plink(args.dir, args.anno)
+    convert_to_plink(args.dir, args.anno, outdir)
 
     if args.to_hg19:
         print("Performing liftOver from hg18 to hg19...")
-        map2bed(f"{fam_id}.map", f"{fam_id}.bed")
-        os.system(f"./liftOver/liftOver {fam_id}.bed ./liftOver/hg18ToHg19.over.chain.gz output.bed unlifted.bed")
-        bed2map("output.bed", "unlifted.bed", f"{fam_id}.map", f"{fam_id}.lifted.map")
+        map2bed(f"{outdir + fam_id}.map", f"{outdir + fam_id}.bed")
+        path = Path(__file__).parent.absolute()
+        subprocess.run([
+            f"{path}/liftOver/liftOver",
+            f"{outdir + fam_id}.bed",
+            "./liftOver/hg18ToHg19.over.chain.gz",
+            "output.bed",
+            "unlifted.bed"
+        ])
+        bed2map("output.bed", "unlifted.bed", f"{outdir + fam_id}.map", f"{outdir + fam_id}.lifted.map")
         os.remove("output.bed")
         os.remove("unlifted.bed")
-        os.remove(f"{fam_id}.bed")
-        os.remove(f"{fam_id}.map")
-        os.rename(f"{fam_id}.lifted.map", f"{fam_id}.map")
+        os.remove(f"{outdir + fam_id}.bed")
+        os.remove(f"{outdir + fam_id}.map")
+        os.rename(f"{outdir + fam_id}.lifted.map", f"{outdir + fam_id}.map")
 
     print("Removing unused markers...")
-    remove_unused_markers(f"{fam_id}.map")
-    get_chrom_list(f"{fam_id}.map")
+    remove_unused_markers(f"{outdir + fam_id}.map")
+    # get_chrom_list(f"{outdir + fam_id}.map")
 
     print("Done!")
 
