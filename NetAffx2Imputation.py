@@ -58,10 +58,10 @@ def parse_args():
     parser_run = subparsers.add_parser('run')
     parser_run.add_argument("anno", help="TSV annotation file", type=str)
     parser_run.add_argument(
-        "control", help="Directory containing control sample TSV files", type=str
+        "samples", help="Directory containing sample TSV files", type=str
     )
     parser_run.add_argument(
-        "case", help="Directory containing case sample TSV files", type=str
+        "group", help="File specifying the phenotype group of each sample", type=str
     )
     parser_run.add_argument(
         "--hrc",
@@ -115,7 +115,7 @@ def parse_args():
 
         # Step 2: Creating PLINK files
         print("Creating PLINK files\n")
-        plink_file = convert_to_plink(args.control, args.case, args.anno)
+        plink_file = convert_to_plink(args.samples, args.group, args.anno)
 
         # Step 3: Quality control via Michigan Imputation Server's pipeline
         print("Running Quality Control\n")

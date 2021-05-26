@@ -1,8 +1,8 @@
 # vsrp
 
 This is a bash pipeline that converts NetAffx annotation and sample files
-(TSV format, from NA29 and/or NA32), into sorted, Gunzipped VCF files for
-each chromosome - the required input file format for the Michigan
+(TSV format, from either NA29 or NA32), into sorted, Gunzipped VCF files 
+for each chromosome - the required input file format for the Michigan
 Imputation Server.
 
 The proposed pipeline builds on top of the data processing pipeline as 
@@ -91,7 +91,7 @@ Execution Time:
 | :-------------:|:--------:|:--------:|:--------:|
 | 40             |4m25.254s |4m42.964s |4m29.313s |
 | 100            |6m45.031s |6m53.969s |6m38.285s |
-| 200            |12m5.040s |10m52.375s|11m39.313s|
+| 200            |12m5.040s |12m52.375s|12m39.313s|
 Results are from the bash time command (real time)
 
 *Quality Control checks:
