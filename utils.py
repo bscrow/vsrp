@@ -24,13 +24,7 @@ def merge_annotation(na32, na29, outfile):
         is available
     :param outfile: Name of the output merged annotation file
     """
-    complement = {
-        "A": "T",
-        "C": "G",
-        "G": "C",
-        "T": "A",
-        "-": "-"
-    }
+    complement = {"A": "T", "C": "G", "G": "C", "T": "A", "-": "-"}
 
     if not (os.path.exists(na32) and os.path.isfile(na32)):
         print("NA32 Annotation file does not exist\n")
@@ -41,7 +35,7 @@ def merge_annotation(na32, na29, outfile):
     combined_anno = {}
     with open(na32, "r") as f:
         for line in f:
-            if not line.startswith("\"AX"):
+            if not line.startswith('"AX'):
                 continue
             line = line.replace('"', "").split(",")
             if "---" in line[:3]:
@@ -49,7 +43,7 @@ def merge_annotation(na32, na29, outfile):
             combined_anno[line[0]] = line[:4] + ["0", "0"] + line[8:10]
     with open(na29, "r") as f:
         for line in f:
-            if not line.startswith("\"AX"):
+            if not line.startswith('"AX'):
                 continue
             line = line.replace('"', "").split(",")
             if "---" in line[:3]:
@@ -63,7 +57,10 @@ def merge_annotation(na32, na29, outfile):
                 # If NA29 and NA32 have different alleles, check if this is
                 # due to change in strand. If so, change NA29 strand
                 if line[8:10] != combined_anno[line[0]][6:8]:
-                    if combined_anno[line[0]][6:8] == [complement[line[8]], complement[line[9]]]:
+                    if combined_anno[line[0]][6:8] == [
+                        complement[line[8]],
+                        complement[line[9]],
+                    ]:
                         line[8], line[9] = complement[line[8]], complement[line[9]]
                 combined_anno[line[0]][4] = line[8]
                 combined_anno[line[0]][5] = line[9]
@@ -113,10 +110,14 @@ def update_genotype(ped_line, call_code, annotation, version):
     if call_code not in ("AA", "AB", "BA", "BB"):
         ped_line.append("0 0")
     else:
-        ped_line.append(f"{allele_cols[version][call_code[0]]} {allele_cols[version][call_code[1]]}")
+        ped_line.append(
+            f"{allele_cols[version][call_code[0]]} {allele_cols[version][call_code[1]]}"
+        )
 
 
-def convert_to_plink(samples_dir, group_file, anno_file, study_name="mystudy", outdir=OUTDIR):
+def convert_to_plink(
+    samples_dir, group_file, anno_file, study_name="mystudy", outdir=OUTDIR
+):
     """
     Converts input tsv files into PED and MAP files for plink pipeline.
     These files will be named as <samples directory name>.ped/.map
@@ -175,7 +176,14 @@ def convert_to_plink(samples_dir, group_file, anno_file, study_name="mystudy", o
             group = groups[os.path.basename(sample_file)]
         else:
             group = "0"
-        ped_line = [study_name, os.path.split(sample_file)[1][:-4], "0", "0", "0", group]
+        ped_line = [
+            study_name,
+            os.path.split(sample_file)[1][:-4],
+            "0",
+            "0",
+            "0",
+            group,
+        ]
         version = "NA32"
         with open(sample_file, "r") as f:
             file = f.readlines()
@@ -187,7 +195,7 @@ def convert_to_plink(samples_dir, group_file, anno_file, study_name="mystudy", o
         col_titles = file[i].strip().split("\t")
         probeset_id_col = col_titles.index("Probe Set ID")
         call_code_col = col_titles.index("Call Codes")
-        sample = list(map(lambda x: x.strip().split("\t"), file[i+1:]))
+        sample = list(map(lambda x: x.strip().split("\t"), file[i + 1 :]))
         sample.sort(key=lambda x: x[probeset_id_col])  # sort by Probe Set ID
 
         anno_pos, sample_pos = 0, 0
@@ -196,9 +204,6 @@ def convert_to_plink(samples_dir, group_file, anno_file, study_name="mystudy", o
                 update_genotype(
                     ped_line, sample[sample_pos][call_code_col], anno[anno_pos], version
                 )
-                # # Append dbSNP RS ID to annotation list if it has not been added
-                # if not anno[anno_pos][-1].startswith("rs"):
-                #     anno[anno_pos].append(sample[sample_pos][rsid_col])
                 anno_pos += 1
                 sample_pos += 1
             elif anno[anno_pos][0] < sample[sample_pos][probeset_id_col]:

@@ -61,17 +61,17 @@ optional arguments:
 
 #### Run: 
 ```
-python NetAffx2Imputation.py run [-h] [--hrc HRC] [-t T] [-o O] [-r] anno control case
+python NetAffx2Imputation.py run [-h] [--hrc HRC] [-t T] [-o O] [-r] anno samples group
 
 positional arguments:
   anno        TSV annotation file
-  control     Directory containing control sample TSV files
-  case        Directory containing case sample TSV files
+  samples     Directory containing sample TSV files
+  group       File specifying the phenotype group of each sample
 
 optional arguments:
   -h, --help  show this help message and exit
-  --hrc HRC   Directory containing HRC-1000G-check-bim-v4.3.0.zip & the tab delimited HRC reference. 
-              If not included, the required files will be downloaded into the current directory in hrc/.
+  --hrc HRC   Directory containing HRC-1000G-check-bim-v4.3.0.zip & the tab delimited HRC reference. If not included, the required files will be
+              downloaded into the current directory in hrc/.
   -t T        Allele difference threshold value. Default is 0.2.
   -o O        Output directory of vcf.gz files
   -r          Remove temporary files
@@ -92,6 +92,8 @@ Execution Time:
 | 40             |4m25.254s |4m42.964s |4m29.313s |
 | 100            |6m45.031s |6m53.969s |6m38.285s |
 | 200            |12m5.040s |12m52.375s|12m39.313s|
+
+
 Results are from the bash time command (real time)
 
 *Quality Control checks:

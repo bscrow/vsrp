@@ -45,17 +45,17 @@ def parse_args():
     )
 
     # Separate parser for merge
-    subparsers = parser.add_subparsers(title='Sub-commands', dest="command")
-    parser_merge = subparsers.add_parser('merge')
+    subparsers = parser.add_subparsers(title="Sub-commands", dest="command")
+    parser_merge = subparsers.add_parser("merge")
     parser_merge.add_argument("anno29", help="CSV annotation file from NA29", type=str)
     parser_merge.add_argument("anno32", help="CSV annotation file from NA32", type=str)
     parser_merge.add_argument(
         "-o",
         help="Name of the output merged annotation file. Default is 'merged_annotation.tsv'",
         type=str,
-        default="merged_annotation.tsv"
+        default="merged_annotation.tsv",
     )
-    parser_run = subparsers.add_parser('run')
+    parser_run = subparsers.add_parser("run")
     parser_run.add_argument("anno", help="TSV annotation file", type=str)
     parser_run.add_argument(
         "samples", help="Directory containing sample TSV files", type=str
@@ -74,7 +74,7 @@ def parse_args():
         "-t",
         help="Allele difference threshold value. Default is 0.2.",
         type=float,
-        default=0.2
+        default=0.2,
     )
     parser_run.add_argument("-o", help="Output directory of vcf.gz files", type=str)
     parser_run.add_argument("-r", help="Remove temporary files", action="store_true")
@@ -119,8 +119,28 @@ def parse_args():
 
         # Step 3: Quality control via Michigan Imputation Server's pipeline
         print("Running Quality Control\n")
-        subprocess.run(["plink", "--file", plink_file, "--make-bed", "--out", plink_file, "--allow-no-sex"])
-        subprocess.run(["plink", "--freq", "--bfile", plink_file, "--out", plink_file, "--allow-no-sex"])
+        subprocess.run(
+            [
+                "plink",
+                "--file",
+                plink_file,
+                "--make-bed",
+                "--out",
+                plink_file,
+                "--allow-no-sex",
+            ]
+        )
+        subprocess.run(
+            [
+                "plink",
+                "--freq",
+                "--bfile",
+                plink_file,
+                "--out",
+                plink_file,
+                "--allow-no-sex",
+            ]
+        )
         subprocess.run(
             [
                 "perl",
@@ -172,5 +192,4 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    # merge_annotation("Axiom_GW_Hu_SNP.na32.annot.csv", "Axiom_GW_Hu_SNP.r2.na29.annot.csv", "merged")
     parse_args()
