@@ -9,51 +9,94 @@ import os
 OUTDIR = "temp/"
 
 
-def merge_annotation(na32, na29):
+def merge_annotation(na32, na29, outfile):
     """
     Merges annotation data of NA29 and NA32 based on Probe Set ID. If a
-    Probe Set ID exists in both NA29 and NA32, the more up-to-date NA32
-    annotation is kept.
+    Probe Set ID exists in both NA29 and NA32, chromosome and position in
+    NA32 annotation is kept. Alleles for NA29 and NA32 are both kept.
+
+    Each row in the tab delimited output file is as follows:
+    [Probe Set ID, rsID, Chromosome, Chromosomal Position,
+    NA29 A Allele, NA29 B Allele, NA32 A Allele, NA32 B Allele]
 
     :param na32: NA32 annotation file
     :param na29: NA29 annotation file, or None if only NA32 annotation file
         is available
-    :return: list of merged annotation data
+    :param outfile: Name of the output merged annotation file
     """
+    complement = {
+        "A": "T",
+        "C": "G",
+        "G": "C",
+        "T": "A",
+        "-": "-"
+    }
+
     if not (os.path.exists(na32) and os.path.isfile(na32)):
         print("NA32 Annotation file does not exist\n")
         return
-    with open(na32, "r") as f:
-        na32_anno = list(map(lambda x: x.strip().split("\t"), f.readlines()))
-    if not na29:
-        return na32_anno
     if not (os.path.exists(na29) and os.path.isfile(na29)):
         print("NA29 Annotation file does not exist\n")
         return
+    combined_anno = {}
+    with open(na32, "r") as f:
+        for line in f:
+            if not line.startswith("\"AX"):
+                continue
+            line = line.replace('"', "").split(",")
+            if "---" in line[:3]:
+                continue
+            combined_anno[line[0]] = line[:4] + ["0", "0"] + line[8:10]
     with open(na29, "r") as f:
-        na29_anno = list(map(lambda x: x.strip().split("\t"), f.readlines()))
-    na29_anno.sort(key=lambda x: x[0])
-    na32_anno.sort(key=lambda x: x[0])
-    combined_anno = []
-    i, j = 0, 0
-    while i < len(na29_anno) and j < len(na32_anno):
-        if na29_anno[i][0] < na32_anno[j][0]:
-            combined_anno.append(na29_anno[i])
-            i += 1
-        elif na29_anno[i][0] == na32_anno[j][0]:
-            # NA32 annotations override NA29 annotations
-            combined_anno.append(na32_anno[j])
-            i += 1
-            j += 1
-        else:
-            combined_anno.append(na32_anno[j])
-            j += 1
-    combined_anno.extend(na29_anno[i:])
-    combined_anno.extend(na32_anno[j:])
-    return combined_anno
+        for line in f:
+            if not line.startswith("\"AX"):
+                continue
+            line = line.replace('"', "").split(",")
+            if "---" in line[:3]:
+                continue
+            if line[0] in combined_anno:
+                # For now, remove probesets which are assigned different rsIDs
+                # between NA29 and NA32
+                if combined_anno[line[0]][1] != line[1]:
+                    combined_anno.pop(line[0])
+                    continue
+                # If NA29 and NA32 have different alleles, check if this is
+                # due to change in strand. If so, change NA29 strand
+                if line[8:10] != combined_anno[line[0]][6:8]:
+                    if combined_anno[line[0]][6:8] == [complement[line[8]], complement[line[9]]]:
+                        line[8], line[9] = complement[line[8]], complement[line[9]]
+                combined_anno[line[0]][4] = line[8]
+                combined_anno[line[0]][5] = line[9]
+            else:
+                combined_anno[line[0]] = line[:4] + line[8:10] + ["0", "0"]
+    with open(outfile, "w") as f:
+        for entry in combined_anno:
+            f.write("\t".join(combined_anno[entry]) + "\n")
 
 
-def update_genotype(ped_line, call_code, annotation):
+# The default sorting algorithm is about 10X faster than this implementation
+# def radix_sort(ls):
+#     """
+#     Helper function to sort a list based on the probeset ID at index 0,
+#     which consist of a 8 digit number with a prefix "AX-".
+#
+#     :param ls: list to sort based on probeset ID at position pos
+#     :return: sorted list
+#     """
+#     sorting_dict = {}
+#     for i in range(10):
+#         sorting_dict[str(i)] = []
+#     for i in range(10, 2, -1):
+#         for line in ls:
+#             sorting_dict[line[0][i]].append(line)
+#         ls = []
+#         for j in range(10):
+#             ls.extend(sorting_dict[str(j)])
+#             sorting_dict[str(j)] = []
+#     return ls
+
+
+def update_genotype(ped_line, call_code, annotation, version):
     """
     Helper function that adds alleles for a SNP marker to a sample in
     the PED file, based on its call code.
@@ -61,15 +104,19 @@ def update_genotype(ped_line, call_code, annotation):
     :param ped_line: list representing a line in the ped file
     :param call_code: string representing a call code for a marker
     :param annotation: list representing a sample from the annotation file
+    :param version: string for sample annotation version (NA29/NA32)
     """
-    allele_cols = {"A": annotation[3], "B": annotation[4]}
+    allele_cols = {
+        "NA29": {"A": annotation[4], "B": annotation[5]},
+        "NA32": {"A": annotation[6], "B": annotation[7]},
+    }
     if call_code not in ("AA", "AB", "BA", "BB"):
         ped_line.append("0 0")
     else:
-        ped_line.append(f"{allele_cols[call_code[0]]} {allele_cols[call_code[1]]}")
+        ped_line.append(f"{allele_cols[version][call_code[0]]} {allele_cols[version][call_code[1]]}")
 
 
-def convert_to_plink(na32_dir, na29_dir, anno, study_name="mystudy", outdir=OUTDIR):
+def convert_to_plink(control_dir, case_dir, anno_file, study_name="mystudy", outdir=OUTDIR):
     """
     Converts input tsv files into PED and MAP files for plink pipeline.
     These files will be named as <samples directory name>.ped/.map
@@ -80,14 +127,14 @@ def convert_to_plink(na32_dir, na29_dir, anno, study_name="mystudy", outdir=OUTD
         Paternal ID: 0 (missing)
         Maternal ID: 0 (missing)
         Sex: 0 (unknown)
-        Phenotype: 0 (missing)
+        Phenotype: 1 (control) or 2 (case)
         Genotypes: Biallelic markers aligned to the order in the MAP file
 
     MAP file: Each SNP is represented by chromosome, rs ID and bp position.
 
-    :param na32_dir: Directory of sample TSV files
-    :param na29_dir: Directory of sample TSV files
-    :param anno: file name of the annotation TSV file
+    :param control_dir: Directory of sample TSV files
+    :param case_dir: Directory of sample TSV files
+    :param anno_file: file name of the annotation TSV file
     :param study_name: Name of study to name the output files. Default
         name is "mystudy"
     :param outdir: Name of directory to write output files to. Default
@@ -95,75 +142,74 @@ def convert_to_plink(na32_dir, na29_dir, anno, study_name="mystudy", outdir=OUTD
 
     :return: Name of PLINK files without extensions
     """
-    samples = []
-    if na29_dir:
-        if not (os.path.exists(na29_dir) and os.path.isdir(na29_dir)):
-            print("NA29 sample directory does not exist\n")
-            return
-        samples.extend(sorted(glob.glob(os.path.join(na29_dir, "*.tsv"))))
-    if not (os.path.exists(na32_dir) and os.path.isdir(na32_dir)):
-        print("NA32 sample directory does not exist\n")
+    groups = []
+    if not (os.path.exists(case_dir) and os.path.isdir(case_dir)):
+        print("Case sample directory does not exist\n")
         return
-    samples.extend(sorted(glob.glob(os.path.join(na32_dir, "*.tsv"))))
+    groups.append(sorted(glob.glob(os.path.join(case_dir, "*.tsv"))))
+    if not (os.path.exists(control_dir) and os.path.isdir(control_dir)):
+        print("Control sample directory does not exist\n")
+        return
+    groups.append(sorted(glob.glob(os.path.join(control_dir, "*.tsv"))))
+    if not (os.path.exists(anno_file) and os.path.isfile(anno_file)):
+        print("Annotation file does not exist\n")
+        return
+    with open(anno_file, "r") as f:
+        anno = list(map(lambda x: x.strip().split("\t"), f.readlines()))
+    anno.sort(key=lambda x: x[0])
 
-    anno.sort(key=lambda x: x[0])  # sort by Probe Set ID
     if not os.path.exists(outdir):
         os.makedirs(outdir)
-
     file_name = os.path.join(outdir, study_name)
-
-    ped_content, map_content = [], []
+    map_content = []
     open(file_name + ".ped", "w").close()
     # For each sample, find alleles via probeset ID in annotation file and
     # write to ped file
-    for sample_file in samples:
-        ped_line = [study_name, os.path.split(sample_file)[1][:-4], "0", "0", "0", "0"]
-        with open(sample_file, "r") as f:
-            file = f.readlines()
-        for i in range(len(file)):
-            if not file[i].startswith("#"):
-                break
-        col_titles = file[i].strip().split("\t")
-        probeset_id_col = col_titles.index("Probe Set ID")
-        # chrom_col = col_titles.index("Chromosome")
-        # pos_col = col_titles.index("Chromosomal Position")
-        rsid_col = col_titles.index("dbSNP RS ID")
-        call_code_col = col_titles.index("Call Codes")
-        sample = list(map(lambda x: x.strip().split("\t"), file[6:]))
-        sample.sort(key=lambda x: x[probeset_id_col])  # sort by Probe Set ID
+    for gi in range(len(groups)):
+        for sample_file in groups[gi]:
+            ped_line = [study_name, os.path.split(sample_file)[1][:-4], "0", "0", "0", str(gi + 1)]
+            version = "NA32"
+            with open(sample_file, "r") as f:
+                file = f.readlines()
+            for i in range(len(file)):
+                if file[i] == "#Axiom_GW_Hu_SNP.r2.na29.annot.db\n":
+                    version = "NA29"
+                if not file[i].startswith("#"):
+                    break
+            col_titles = file[i].strip().split("\t")
+            probeset_id_col = col_titles.index("Probe Set ID")
+            call_code_col = col_titles.index("Call Codes")
+            sample = list(map(lambda x: x.strip().split("\t"), file[i+1:]))
+            sample.sort(key=lambda x: x[probeset_id_col])  # sort by Probe Set ID
 
-        anno_pos, sample_pos = 0, 0
-        while anno_pos < len(anno) and sample_pos < len(sample):
-            if anno[anno_pos][0] == sample[sample_pos][probeset_id_col]:
-                update_genotype(
-                    ped_line, sample[sample_pos][call_code_col], anno[anno_pos]
-                )
-                # Append dbSNP RS ID to annotation list if it has not been added
-                if not anno[anno_pos][-1].startswith("rs"):
-                    anno[anno_pos].append(sample[sample_pos][rsid_col])
-                anno_pos += 1
-                sample_pos += 1
-            elif anno[anno_pos][0] < sample[sample_pos][probeset_id_col]:
+            anno_pos, sample_pos = 0, 0
+            while anno_pos < len(anno) and sample_pos < len(sample):
+                if anno[anno_pos][0] == sample[sample_pos][probeset_id_col]:
+                    update_genotype(
+                        ped_line, sample[sample_pos][call_code_col], anno[anno_pos], version
+                    )
+                    # # Append dbSNP RS ID to annotation list if it has not been added
+                    # if not anno[anno_pos][-1].startswith("rs"):
+                    #     anno[anno_pos].append(sample[sample_pos][rsid_col])
+                    anno_pos += 1
+                    sample_pos += 1
+                elif anno[anno_pos][0] < sample[sample_pos][probeset_id_col]:
+                    anno_pos += 1
+                    ped_line.append("0 0")
+                else:
+                    sample_pos += 1
+            while anno_pos < len(anno):
                 anno_pos += 1
                 ped_line.append("0 0")
-            else:
-                sample_pos += 1
-        while anno_pos < len(anno):
-            anno_pos += 1
-            ped_line.append("0 0")
 
-        with open(file_name + ".ped", "a") as f:
-            for i in range(len(ped_line) - 1):
-                f.write(ped_line[i] + "\t")
-            f.write(ped_line[-1] + "\n")
+            with open(file_name + ".ped", "a") as f:
+                for i in range(len(ped_line) - 1):
+                    f.write(ped_line[i] + "\t")
+                f.write(ped_line[-1] + "\n")
 
-    # compile lines to be written to the map file. Unused variants are
-    # marked for reemoval in the map file by adding "-" to its chrom pos.
+    # compile lines to be written to the map file.
     for line in anno:
-        if not line[-1].startswith("rs"):
-            if not line[2].startswith("-"):
-                line[2] = "-" + line[2]
-        map_content.append("\t".join([line[1], line[-1], "0", line[2]]) + "\n")
+        map_content.append("\t".join([line[2], line[1], "0", line[3]]) + "\n")
 
     with open(file_name + ".map", "w") as f:
         f.writelines(map_content)

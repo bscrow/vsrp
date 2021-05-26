@@ -43,101 +43,134 @@ def parse_args():
         "each chromosome - the required input file format for "
         "the Michigan Imputation Server."
     )
-    parser.add_argument(
-        "dir32", help="Directory containing sample TSV files from NA32", type=str
+
+    # Separate parser for merge
+    subparsers = parser.add_subparsers(title='Sub-commands', dest="command")
+    parser_merge = subparsers.add_parser('merge')
+    parser_merge.add_argument("anno29", help="CSV annotation file from NA29", type=str)
+    parser_merge.add_argument("anno32", help="CSV annotation file from NA32", type=str)
+    parser_merge.add_argument(
+        "-o",
+        help="Name of the output merged annotation file. Default is 'merged_annotation.tsv'",
+        type=str,
+        default="merged_annotation.tsv"
     )
-    parser.add_argument("anno32", help="TSV annotation file from NA32", type=str)
-    parser.add_argument(
-        "--dir29", help="Directory containing sample TSV files from NA29", type=str
+    parser_run = subparsers.add_parser('run')
+    parser_run.add_argument("anno", help="TSV annotation file", type=str)
+    parser_run.add_argument(
+        "control", help="Directory containing control sample TSV files", type=str
     )
-    parser.add_argument("--anno29", help="TSV annotation file for NA29", type=str)
-    parser.add_argument(
+    parser_run.add_argument(
+        "case", help="Directory containing case sample TSV files", type=str
+    )
+    parser_run.add_argument(
         "--hrc",
         help="Directory containing HRC-1000G-check-bim-v4.3.0.zip & the "
         "tab delimited HRC reference. If not included, the required "
         "files will be downloaded into the current directory in hrc/.",
         type=str,
     )
-    parser.add_argument("-o", help="Output directory of vcf.gz files", type=str)
-    parser.add_argument("-r", help="Remove temporary files", action="store_true")
+    parser_run.add_argument(
+        "-t",
+        help="Allele difference threshold value. Default is 0.2.",
+        type=float,
+        default=0.2
+    )
+    parser_run.add_argument("-o", help="Output directory of vcf.gz files", type=str)
+    parser_run.add_argument("-r", help="Remove temporary files", action="store_true")
+
     args = parser.parse_args(args=None if sys.argv[1:] else ["--help"])
 
-    # Checking HRC quality control files
-    if args.hrc:
-        if (
-            not os.path.isdir(args.hrc)
-            or "HRC-1000G-check-bim.pl" not in os.listdir(args.hrc)
-            or "HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz" not in os.listdir(args.hrc)
-        ):
-            print("HRC files specified but not found. Exiting\n")
-            return
-    else:
-        print("Downloading HRC files\n")
-        if not os.path.exists("./hrc/"):
-            os.mkdir("./hrc/")
-        subprocess.run(["wget", HRC_FILE, "-P", "./hrc/"])
+    if args.command == "merge":
+        merge_annotation(args.anno32, args.anno29, args.o)
+    elif args.command == "run":
+        # Checking HRC quality control files
+        if args.hrc:
+            if (
+                not os.path.isdir(args.hrc)
+                or "HRC-1000G-check-bim.pl" not in os.listdir(args.hrc)
+                or "HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz" not in os.listdir(args.hrc)
+            ):
+                print("HRC files specified but not found. Exiting\n")
+                return
+        else:
+            print("Downloading HRC files\n")
+            if not os.path.exists("./hrc/"):
+                os.mkdir("./hrc/")
+            subprocess.run(["wget", HRC_FILE, "-P", "./hrc/"])
+            subprocess.run(
+                [
+                    "unzip",
+                    os.path.join("./hrc/", os.path.basename(HRC_FILE)),
+                    "-d",
+                    "./hrc/",
+                ]
+            )
+            subprocess.run(["wget", HRC_REF, "-P", "./hrc/"])
+            args.hrc = "./hrc/"
+
+        # Step 1: Merge annotation files
+        # print("Merging annotation files\n")
+        # annotation = merge_annotation(args.anno32, args.anno29)
+
+        # Step 2: Creating PLINK files
+        print("Creating PLINK files\n")
+        plink_file = convert_to_plink(args.control, args.case, args.anno)
+
+        # Step 3: Quality control via Michigan Imputation Server's pipeline
+        print("Running Quality Control\n")
+        subprocess.run(["plink", "--file", plink_file, "--make-bed", "--out", plink_file, "--allow-no-sex"])
+        subprocess.run(["plink", "--freq", "--bfile", plink_file, "--out", plink_file, "--allow-no-sex"])
         subprocess.run(
             [
-                "unzip",
-                os.path.join("./hrc/", os.path.basename(HRC_FILE)),
-                "-d",
-                "./hrc/",
+                "perl",
+                os.path.join(args.hrc, "HRC-1000G-check-bim.pl"),
+                "-b",
+                plink_file + ".bim",
+                "-f",
+                plink_file + ".frq",
+                "-r",
+                os.path.join(args.hrc, "HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz"),
+                "-h",
+                "-t",
+                str(args.t),
             ]
         )
-        subprocess.run(["wget", HRC_REF, "-P", "./hrc/"])
-        args.hrc = "./hrc/"
+        # Allow phenotypes despite samples not having sex
+        with open(os.path.join(TEMP_DIR, "Run-plink.sh"), "r") as f:
+            cmds = f.readlines()
+        for cmd in cmds:
+            if cmd.startswith("plink"):
+                cmd = cmd.strip() + " --allow-no-sex\n"
+        with open(os.path.join(TEMP_DIR, "Run-plink.sh"), "w") as f:
+            f.writelines(cmds)
+        subprocess.run(["sh", os.path.join(TEMP_DIR, "Run-plink.sh")])
 
-    # Step 1: Merge annotation files
-    print("Merging annotation files\n")
-    annotation = merge_annotation(args.anno32, args.anno29)
+        # Step 4: Sort and gunzip
+        print("Preparing vcf.gz files\n")
+        vcf_files = glob.glob(os.path.join(TEMP_DIR, "*.vcf"))
+        if not os.path.exists(args.o):
+            os.mkdir(args.o)
+        for vcf_file in vcf_files:
+            study_name, chrom = os.path.basename(vcf_file).split("-updated-")
+            subprocess.run(
+                [
+                    "bcftools",
+                    "sort",
+                    vcf_file,
+                    "-Oz",
+                    "-o",
+                    os.path.join(args.o, f"{study_name}_{chrom}.gz"),
+                ]
+            )
 
-    # Step 2: Creating PLINK files
-    print("Creating PLINK files\n")
-    plink_file = convert_to_plink(args.dir32, args.dir29, annotation)
+        # Remove intermediate files if desired
+        if args.r:
+            shutil.rmtree(TEMP_DIR, True)
 
-    # Step 3: Quality control via Michigan Imputation Server's pipeline
-    print("Running Quality Control\n")
-    subprocess.run(["plink", "--file", plink_file, "--make-bed", "--out", plink_file])
-    subprocess.run(["plink", "--freq", "--bfile", plink_file, "--out", plink_file])
-    subprocess.run(
-        [
-            "perl",
-            os.path.join(args.hrc, "HRC-1000G-check-bim.pl"),
-            "-b",
-            plink_file + ".bim",
-            "-f",
-            plink_file + ".frq",
-            "-r",
-            os.path.join(args.hrc, "HRC.r1-1.GRCh37.wgs.mac5.sites.tab.gz"),
-            "-h",
-        ]
-    )
-    subprocess.run(["sh", os.path.join(TEMP_DIR, "Run-plink.sh")])
-
-    # Step 4: Sort and gunzip
-    print("Preparing vcf.gz files\n")
-    vcf_files = glob.glob(os.path.join(TEMP_DIR, "*.vcf"))
-    if not os.path.exists(args.o):
-        os.mkdir(args.o)
-    for vcf_file in vcf_files:
-        study_name, chrom = os.path.basename(vcf_file).split("-updated-")
-        subprocess.run(
-            [
-                "bcftools",
-                "sort",
-                vcf_file,
-                "-Oz",
-                "-o",
-                os.path.join(args.o, f"{study_name}_{chrom}.gz"),
-            ]
-        )
-
-    # Remove intermediate files if desired
-    if args.r:
-        shutil.rmtree(TEMP_DIR, True)
-
-    print(f"Done! Files are ready in {args.o}\n")
+        print(f"Done! Files are ready in {args.o}\n")
 
 
 if __name__ == "__main__":
+    # merge_annotation("Axiom_GW_Hu_SNP.na32.annot.csv", "Axiom_GW_Hu_SNP.r2.na29.annot.csv", "merged")
     parse_args()
