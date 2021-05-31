@@ -180,7 +180,7 @@ def parse_args():
                     vcf_file,
                     "-Oz",
                     "-o",
-                    os.path.join(args.o, f"{study_name}_{chrom}.gz"),
+                    os.path.join(args.o, f"{chrom}.gz"),
                 ]
             )
 

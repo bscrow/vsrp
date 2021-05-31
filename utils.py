@@ -116,14 +116,14 @@ def update_genotype(ped_line, call_code, annotation, version):
 
 
 def convert_to_plink(
-    samples_dir, group_file, anno_file, study_name="mystudy", outdir=OUTDIR
+    samples_dir, group_file, anno_file, study_name="", outdir=OUTDIR
 ):
     """
     Converts input tsv files into PED and MAP files for plink pipeline.
     These files will be named as <samples directory name>.ped/.map
 
     PED file: Each sample will be represented as a line in the file, with
-        Family ID: study_name
+        Family ID: study_name, or sample file name if study_name is ""
         Individual ID: sample file name
         Paternal ID: 0 (missing)
         Maternal ID: 0 (missing)
@@ -139,7 +139,7 @@ def convert_to_plink(
         be assigned 0 (missing)
     :param anno_file: file name of the annotation TSV file
     :param study_name: Name of study to name the output files. Default
-        name is "mystudy"
+        name is ""
     :param outdir: Name of directory to write output files to. Default
         name is "temp"
 
@@ -166,7 +166,7 @@ def convert_to_plink(
 
     if not os.path.exists(outdir):
         os.makedirs(outdir)
-    file_name = os.path.join(outdir, study_name)
+    file_name = os.path.join(outdir, "raw")
     map_content = []
     open(file_name + ".ped", "w").close()
     # For each sample, find alleles via probeset ID in annotation file and
@@ -176,6 +176,8 @@ def convert_to_plink(
             group = groups[os.path.basename(sample_file)]
         else:
             group = "0"
+        if not study_name:
+            study_name = os.path.split(sample_file)[1][:-4]
         ped_line = [
             study_name,
             os.path.split(sample_file)[1][:-4],
