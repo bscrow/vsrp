@@ -66,7 +66,7 @@ python NetAffx2Imputation.py run [-h] [--hrc HRC] [-t T] [-o O] [-r] anno sample
 positional arguments:
   anno        TSV annotation file
   samples     Directory containing sample TSV files
-  group       File specifying the phenotype group of each sample
+  group       File specifying the phenotype group and sex of each sample
 
 optional arguments:
   -h, --help  show this help message and exit

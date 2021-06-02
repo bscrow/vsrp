@@ -61,7 +61,7 @@ def parse_args():
         "samples", help="Directory containing sample TSV files", type=str
     )
     parser_run.add_argument(
-        "group", help="File specifying the phenotype group of each sample", type=str
+        "group", help="File specifying the phenotype group and sex of each sample", type=str
     )
     parser_run.add_argument(
         "--hrc",
@@ -127,7 +127,7 @@ def parse_args():
                 "--make-bed",
                 "--out",
                 plink_file,
-                "--allow-no-sex",
+                # "--allow-no-sex",
             ]
         )
         subprocess.run(
@@ -138,7 +138,7 @@ def parse_args():
                 plink_file,
                 "--out",
                 plink_file,
-                "--allow-no-sex",
+                # "--allow-no-sex",
             ]
         )
         subprocess.run(
@@ -156,14 +156,14 @@ def parse_args():
                 str(args.t),
             ]
         )
-        # Allow phenotypes despite samples not having sex
-        with open(os.path.join(TEMP_DIR, "Run-plink.sh"), "r") as f:
-            cmds = f.readlines()
-        for cmd in cmds:
-            if cmd.startswith("plink"):
-                cmd = cmd.strip() + " --allow-no-sex\n"
-        with open(os.path.join(TEMP_DIR, "Run-plink.sh"), "w") as f:
-            f.writelines(cmds)
+        # # Allow phenotypes despite samples not having sex
+        # with open(os.path.join(TEMP_DIR, "Run-plink.sh"), "r") as f:
+        #     cmds = f.readlines()
+        # for cmd in cmds:
+        #     if cmd.startswith("plink"):
+        #         cmd = cmd.strip() + " --allow-no-sex\n"
+        # with open(os.path.join(TEMP_DIR, "Run-plink.sh"), "w") as f:
+        #     f.writelines(cmds)
         subprocess.run(["sh", os.path.join(TEMP_DIR, "Run-plink.sh")])
 
         # Step 4: Sort and gunzip

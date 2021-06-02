@@ -115,9 +115,44 @@ def update_genotype(ped_line, call_code, annotation, version):
         )
 
 
-def convert_to_plink(
-    samples_dir, group_file, anno_file, study_name="", outdir=OUTDIR
-):
+def find_cols(sample_file):
+    """
+    Helper function that locates the probeset ID column and the call codes
+    column in a sample file by reading the first 10 positions in file,
+    if they cannot be identified via column headers.
+
+    :param sample_file: sample file of interest
+    :return: tuple of (probeset column index, call code column index)
+    """
+    call_codes = {"BB", "AA", "AB", "NoCall"}
+    probeset_counts = {}
+    callcode_counts = {}
+    probeset_col, callcode_col = -1, -1
+    with open(sample_file, "r") as f:
+        while f.readline().startswith("#"):
+            continue
+        f.readline()
+        for i in range(10):
+            ln = f.readline().strip().split("\t")
+            for j in range(len(ln)):
+                if ln[j] in call_codes:
+                    if j not in callcode_counts:
+                        callcode_counts[j] = 0
+                    callcode_counts[j] += 1
+                elif ln[j].startswith("AX-"):
+                    if j not in probeset_counts:
+                        probeset_counts[j] = 0
+                    probeset_counts[j] += 1
+    for k in probeset_counts:
+        if probeset_counts[k] == 10:
+            probeset_col = k
+    for k in callcode_counts:
+        if callcode_counts[k] == 10:
+            callcode_col = k
+    return probeset_col, callcode_col
+
+
+def convert_to_plink(samples_dir, group_file, anno_file, study_name="", outdir=OUTDIR):
     """
     Converts input tsv files into PED and MAP files for plink pipeline.
     These files will be named as <samples directory name>.ped/.map
@@ -127,16 +162,16 @@ def convert_to_plink(
         Individual ID: sample file name
         Paternal ID: 0 (missing)
         Maternal ID: 0 (missing)
-        Sex: 0 (unknown)
-        Phenotype: 1 (control) or 2 (case)
+        Sex: Depends on group_file input
+        Phenotype: Depends on group_file input
         Genotypes: Biallelic markers aligned to the order in the MAP file
 
     MAP file: Each SNP is represented by chromosome, rs ID and bp position.
 
     :param samples_dir: Directory of sample TSV files
-    :param group_file: File specifying the phenotype group of each sample.
-        If a sample file does not have an assigned group, the sample will
-        be assigned 0 (missing)
+    :param group_file: File specifying the phenotype and sex of each
+        sample. If a sample file does not have an assigned group, the
+        sample will be assigned 0 (missing) for phenotype and sex.
     :param anno_file: file name of the annotation TSV file
     :param study_name: Name of study to name the output files. Default
         name is ""
@@ -155,8 +190,8 @@ def convert_to_plink(
     groups = {}
     with open(group_file, "r") as f:
         for line in f:
-            filename, group = line.strip().split("\t")
-            groups[filename] = group
+            filename, group, sex = line.strip().split("\t")
+            groups[filename] = group, sex
     if not (os.path.exists(anno_file) and os.path.isfile(anno_file)):
         print("Annotation file does not exist\n")
         return
@@ -173,9 +208,10 @@ def convert_to_plink(
     # write to ped file
     for sample_file in samples:
         if os.path.basename(sample_file) in groups:
-            group = groups[os.path.basename(sample_file)]
+            group, sex = groups[os.path.basename(sample_file)]
         else:
             group = "0"
+            sex = "0"
         if not study_name:
             study_name = os.path.split(sample_file)[1][:-4]
         ped_line = [
@@ -183,7 +219,7 @@ def convert_to_plink(
             os.path.split(sample_file)[1][:-4],
             "0",
             "0",
-            "0",
+            sex,
             group,
         ]
         version = "NA32"
@@ -195,8 +231,15 @@ def convert_to_plink(
             if not file[i].startswith("#"):
                 break
         col_titles = file[i].strip().split("\t")
-        probeset_id_col = col_titles.index("Probe Set ID")
-        call_code_col = col_titles.index("Call Codes")
+        try:
+            probeset_id_col = col_titles.index("Probe Set ID")
+            call_code_col = col_titles.index("Call Codes")
+        except ValueError:
+            probeset_id_col, call_code_col = find_cols(sample_file)
+        finally:
+            if probeset_id_col == -1 or call_code_col == -1:
+                with open("samples.log", "a") as f:
+                    f.write(sample_file + "\n")
         sample = list(map(lambda x: x.strip().split("\t"), file[i + 1 :]))
         sample.sort(key=lambda x: x[probeset_id_col])  # sort by Probe Set ID
 
